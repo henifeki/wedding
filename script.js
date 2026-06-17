@@ -32,8 +32,6 @@
   const guestbookForm = document.getElementById('guestbookForm');
   const guestbookMessages = document.getElementById('guestbookMessages');
   const musicToggle = document.getElementById('musicToggle');
-  const youtubeMusic = document.getElementById('youtubeMusic');
-  const youtubeMusicPlayer = document.getElementById('youtubeMusicPlayer');
   const bgMusic = document.getElementById('bgMusic');
   const backToTop = document.getElementById('backToTop');
   const cursor = document.getElementById('cursor');
@@ -339,12 +337,9 @@
      ============================================================ */
   function initMusic() {
     bgMusic.volume = 0.45;
-    bgMusic.autoplay = false;
+    bgMusic.autoplay = true;
     let pendingAutoplay = false;
-    let youtubePlayer = null;
-    let youtubeReady = false;
-    let wantsMusic = true;
-    let isPlaying = false;
+    let userStoppedMusic = false;
 
     function updateMusicButton(isPlaying) {
       musicToggle.classList.toggle('playing', isPlaying);
@@ -371,92 +366,32 @@
       document.addEventListener('scroll', startMusicAfterGesture, { once: true, passive: true });
     }
 
-    function setPlayingState(nextPlaying) {
-      isPlaying = nextPlaying;
-      updateMusicButton(nextPlaying);
-
-      if (nextPlaying) {
-        pendingAutoplay = false;
-        removeAutoplayListeners();
-      }
-    }
-
-    function playFallbackAudio() {
-      if (youtubePlayer && youtubeReady) {
-        youtubePlayer.pauseVideo();
-      } else {
-        sendYouTubeCommand('pauseVideo');
-      }
+    function playMusic() {
+      if (userStoppedMusic) return;
 
       const playPromise = bgMusic.play();
 
       if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            setPlayingState(true);
-          })
-          .catch(() => {
-            setPlayingState(false);
-            enableAutoplayAfterGesture();
-          });
-      } else {
-        setPlayingState(true);
-      }
-    }
-
-    function sendYouTubeCommand(command) {
-      if (!youtubeMusicPlayer || !youtubeMusicPlayer.contentWindow) return false;
-
-      youtubeMusicPlayer.contentWindow.postMessage(
-        JSON.stringify({ event: 'command', func: command, args: [] }),
-        '*'
-      );
-      return true;
-    }
-
-    function playYouTubeMusic() {
-      if (!youtubeReady || !youtubePlayer) {
-        if (sendYouTubeCommand('playVideo')) {
-          setPlayingState(true);
-        } else {
-          setPlayingState(false);
-          enableAutoplayAfterGesture();
-        }
-        return;
-      }
-
-      try {
-        bgMusic.pause();
-        youtubePlayer.unMute();
-        youtubePlayer.setVolume(45);
-        youtubePlayer.playVideo();
-
-        setTimeout(() => {
-          if (!isPlaying && wantsMusic) {
+        window.setTimeout(() => {
+          if (bgMusic.paused && !userStoppedMusic) {
+            updateMusicButton(false);
             enableAutoplayAfterGesture();
           }
         }, 1200);
-      } catch (error) {
-        playFallbackAudio();
-      }
-    }
 
-    function playMusic() {
-      wantsMusic = true;
-      playYouTubeMusic();
-    }
-
-    function pauseMusic() {
-      wantsMusic = false;
-      bgMusic.pause();
-
-      if (youtubePlayer && youtubeReady) {
-        youtubePlayer.pauseVideo();
+        playPromise
+          .then(() => {
+            pendingAutoplay = false;
+            removeAutoplayListeners();
+            updateMusicButton(true);
+          })
+          .catch(() => {
+            updateMusicButton(false);
+            enableAutoplayAfterGesture();
+          });
       } else {
-        sendYouTubeCommand('pauseVideo');
+        updateMusicButton(true);
       }
-
-      setPlayingState(false);
     }
 
     function startMusicAfterGesture(event) {
@@ -465,66 +400,39 @@
       playMusic();
     }
 
-    window.onYouTubeIframeAPIReady = () => {
-      youtubePlayer = new YT.Player(youtubeMusicPlayer, {
-        events: {
-          onReady: () => {
-            youtubeReady = true;
-            youtubePlayer.setVolume(45);
-            youtubePlayer.unMute();
+    bgMusic.addEventListener('playing', () => {
+      pendingAutoplay = false;
+      removeAutoplayListeners();
+      updateMusicButton(true);
+    });
 
-            if (wantsMusic) {
-              playMusic();
-            }
-          },
-          onStateChange: (event) => {
-            if (event.data === YT.PlayerState.PLAYING) {
-              setPlayingState(true);
-            }
-
-            if (event.data === YT.PlayerState.PAUSED && wantsMusic) {
-              setPlayingState(false);
-              enableAutoplayAfterGesture();
-            }
-          },
-          onError: () => {
-            if (wantsMusic) {
-              playFallbackAudio();
-            }
-          },
-        },
-      });
-    };
-
-    function loadYouTubeApi() {
-      if (!youtubeMusic || !youtubeMusicPlayer) {
-        playFallbackAudio();
-        return;
+    bgMusic.addEventListener('timeupdate', () => {
+      if (!bgMusic.paused) {
+        updateMusicButton(true);
       }
+    });
 
-      if (window.YT && window.YT.Player) {
-        window.onYouTubeIframeAPIReady();
-        return;
-      }
+    bgMusic.addEventListener('pause', () => {
+      updateMusicButton(false);
+    });
 
-      const apiScript = document.createElement('script');
-      apiScript.src = 'https://www.youtube.com/iframe_api';
-      apiScript.onerror = () => {
-        if (wantsMusic) {
-          playFallbackAudio();
-        }
-      };
-      document.head.appendChild(apiScript);
-    }
+    bgMusic.addEventListener('error', () => {
+      updateMusicButton(false);
+      enableAutoplayAfterGesture();
+    });
 
-    loadYouTubeApi();
+    playMusic();
+    window.setTimeout(() => updateMusicButton(!bgMusic.paused), 800);
     enableAutoplayAfterGesture();
 
     musicToggle.addEventListener('click', () => {
-      if (!isPlaying) {
+      if (bgMusic.paused) {
+        userStoppedMusic = false;
         playMusic();
       } else {
-        pauseMusic();
+        userStoppedMusic = true;
+        bgMusic.pause();
+        updateMusicButton(false);
       }
     });
   }
@@ -563,6 +471,7 @@
      INITIALISATION
      ============================================================ */
   function init() {
+    initMusic();
     initLoader();
     initCursor();
     initNavbar();
@@ -572,14 +481,9 @@
     initScrollReveal();
     initParallax();
     initGuestbook();
-    initMusic();
     initBackToTop();
     initSmoothScroll();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  init();
 })();
