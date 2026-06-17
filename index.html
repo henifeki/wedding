@@ -64,8 +64,62 @@
     </svg>
   </button>
   <audio id="bgMusic" autoplay loop preload="auto" playsinline>
-    <source src="assets/wedding-music.wav" type="audio/wav">
+    <source src="assets/a-thousand-years.mp3" type="audio/mpeg">
   </audio>
+  <script>
+    (function () {
+      var music = document.getElementById('bgMusic');
+      var toggle = document.getElementById('musicToggle');
+      var events = ['pointerdown', 'mousedown', 'mouseup', 'touchstart', 'keydown', 'wheel', 'scroll'];
+      if (!music) return;
+
+      function updateButton(isPlaying) {
+        if (!toggle) return;
+
+        toggle.classList.toggle('playing', isPlaying);
+        toggle.setAttribute('aria-label', isPlaying ? 'Couper la musique' : 'Relancer la musique');
+      }
+
+      function removeUnlockEvents() {
+        events.forEach(function (eventName) {
+          document.removeEventListener(eventName, unlockMusic, true);
+        });
+      }
+
+      function playMusic() {
+        music.volume = 0.45;
+        music.play()
+          .then(function () {
+            removeUnlockEvents();
+            updateButton(true);
+          })
+          .catch(function () {
+            updateButton(false);
+          });
+      }
+
+      function unlockMusic() {
+        playMusic();
+      }
+
+      music.volume = 0.45;
+      music.addEventListener('playing', function () {
+        removeUnlockEvents();
+        updateButton(true);
+      });
+
+      events.forEach(function (eventName) {
+        var isPassiveEvent = eventName === 'scroll' || eventName === 'wheel' || eventName === 'touchstart';
+        document.addEventListener(eventName, unlockMusic, {
+          once: true,
+          capture: true,
+          passive: isPassiveEvent
+        });
+      });
+
+      playMusic();
+    })();
+  </script>
 
   <!-- ========== HERO ========== -->
   <section id="hero" class="hero">
