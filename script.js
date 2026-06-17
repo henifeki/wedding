@@ -32,6 +32,8 @@
   const guestbookForm = document.getElementById('guestbookForm');
   const guestbookMessages = document.getElementById('guestbookMessages');
   const musicToggle = document.getElementById('musicToggle');
+  const youtubeMusic = document.getElementById('youtubeMusic');
+  const youtubeMusicPlayer = document.getElementById('youtubeMusicPlayer');
   const bgMusic = document.getElementById('bgMusic');
   const backToTop = document.getElementById('backToTop');
   const cursor = document.getElementById('cursor');
@@ -337,8 +339,12 @@
      ============================================================ */
   function initMusic() {
     bgMusic.volume = 0.45;
-    bgMusic.autoplay = true;
+    bgMusic.autoplay = false;
     let pendingAutoplay = false;
+    let youtubePlayer = null;
+    let youtubeReady = false;
+    let wantsMusic = true;
+    let isPlaying = false;
 
     function updateMusicButton(isPlaying) {
       musicToggle.classList.toggle('playing', isPlaying);
@@ -365,42 +371,160 @@
       document.addEventListener('scroll', startMusicAfterGesture, { once: true, passive: true });
     }
 
-    function playMusic() {
+    function setPlayingState(nextPlaying) {
+      isPlaying = nextPlaying;
+      updateMusicButton(nextPlaying);
+
+      if (nextPlaying) {
+        pendingAutoplay = false;
+        removeAutoplayListeners();
+      }
+    }
+
+    function playFallbackAudio() {
+      if (youtubePlayer && youtubeReady) {
+        youtubePlayer.pauseVideo();
+      } else {
+        sendYouTubeCommand('pauseVideo');
+      }
+
       const playPromise = bgMusic.play();
 
       if (playPromise !== undefined) {
         playPromise
           .then(() => {
-            pendingAutoplay = false;
-            removeAutoplayListeners();
-            updateMusicButton(true);
+            setPlayingState(true);
           })
           .catch(() => {
-            updateMusicButton(false);
+            setPlayingState(false);
             enableAutoplayAfterGesture();
           });
       } else {
-        updateMusicButton(true);
+        setPlayingState(true);
       }
+    }
+
+    function sendYouTubeCommand(command) {
+      if (!youtubeMusicPlayer || !youtubeMusicPlayer.contentWindow) return false;
+
+      youtubeMusicPlayer.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: command, args: [] }),
+        '*'
+      );
+      return true;
+    }
+
+    function playYouTubeMusic() {
+      if (!youtubeReady || !youtubePlayer) {
+        if (sendYouTubeCommand('playVideo')) {
+          setPlayingState(true);
+        } else {
+          setPlayingState(false);
+          enableAutoplayAfterGesture();
+        }
+        return;
+      }
+
+      try {
+        bgMusic.pause();
+        youtubePlayer.unMute();
+        youtubePlayer.setVolume(45);
+        youtubePlayer.playVideo();
+
+        setTimeout(() => {
+          if (!isPlaying && wantsMusic) {
+            enableAutoplayAfterGesture();
+          }
+        }, 1200);
+      } catch (error) {
+        playFallbackAudio();
+      }
+    }
+
+    function playMusic() {
+      wantsMusic = true;
+      playYouTubeMusic();
+    }
+
+    function pauseMusic() {
+      wantsMusic = false;
+      bgMusic.pause();
+
+      if (youtubePlayer && youtubeReady) {
+        youtubePlayer.pauseVideo();
+      } else {
+        sendYouTubeCommand('pauseVideo');
+      }
+
+      setPlayingState(false);
     }
 
     function startMusicAfterGesture(event) {
       if (event?.target?.closest?.('#musicToggle')) return;
 
-      pendingAutoplay = false;
-      removeAutoplayListeners();
       playMusic();
     }
 
-    playMusic();
-    window.addEventListener('load', playMusic, { once: true });
+    window.onYouTubeIframeAPIReady = () => {
+      youtubePlayer = new YT.Player(youtubeMusicPlayer, {
+        events: {
+          onReady: () => {
+            youtubeReady = true;
+            youtubePlayer.setVolume(45);
+            youtubePlayer.unMute();
+
+            if (wantsMusic) {
+              playMusic();
+            }
+          },
+          onStateChange: (event) => {
+            if (event.data === YT.PlayerState.PLAYING) {
+              setPlayingState(true);
+            }
+
+            if (event.data === YT.PlayerState.PAUSED && wantsMusic) {
+              setPlayingState(false);
+              enableAutoplayAfterGesture();
+            }
+          },
+          onError: () => {
+            if (wantsMusic) {
+              playFallbackAudio();
+            }
+          },
+        },
+      });
+    };
+
+    function loadYouTubeApi() {
+      if (!youtubeMusic || !youtubeMusicPlayer) {
+        playFallbackAudio();
+        return;
+      }
+
+      if (window.YT && window.YT.Player) {
+        window.onYouTubeIframeAPIReady();
+        return;
+      }
+
+      const apiScript = document.createElement('script');
+      apiScript.src = 'https://www.youtube.com/iframe_api';
+      apiScript.onerror = () => {
+        if (wantsMusic) {
+          playFallbackAudio();
+        }
+      };
+      document.head.appendChild(apiScript);
+    }
+
+    loadYouTubeApi();
+    enableAutoplayAfterGesture();
 
     musicToggle.addEventListener('click', () => {
-      if (bgMusic.paused) {
+      if (!isPlaying) {
         playMusic();
       } else {
-        bgMusic.pause();
-        updateMusicButton(false);
+        pauseMusic();
       }
     });
   }
